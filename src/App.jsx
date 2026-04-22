@@ -7,6 +7,7 @@ import { QUIZ_QUESTIONS } from './data/questions';
 
 const STORAGE_KEY = 'voice_quiz_game_state_v1';
 const FEEDBACK_DURATION = 1800;
+const CELEBRATION_DURATION = 1600;
 
 const OPTION_LABELS = {
   A: 'А',
@@ -14,6 +15,16 @@ const OPTION_LABELS = {
   V: 'В',
   G: 'Г',
 };
+
+const createInitialGameState = () => ({
+  questions: QUIZ_QUESTIONS,
+  currentQuestionIndex: 0,
+  score: 0,
+  isWaitingForAnswer: true,
+  isFinished: false,
+  selectedOption: null,
+  revealedCorrectOption: null,
+});
 
 const initializeAssistant = (getState) => {
   if (process.env.NODE_ENV === 'development') {
@@ -32,38 +43,36 @@ const initializeAssistant = (getState) => {
   return createAssistant({ getState });
 };
 
-const createInitialGameState = () => ({
-  questions: QUIZ_QUESTIONS,
-  currentQuestionIndex: 0,
-  score: 0,
-  isWaitingForAnswer: true,
-  isFinished: false,
-});
-
 const normalizeRestoredState = (restored) => {
   if (!restored) {
     return null;
   }
 
   const total = QUIZ_QUESTIONS.length;
+  const initialState = createInitialGameState();
+  const rawIndex = Number(restored.currentQuestionIndex);
   const safeIndex = Math.min(
-    Math.max(Number(restored.currentQuestionIndex) || 0, 0),
+    Math.max(Number.isFinite(rawIndex) ? rawIndex : 0, 0),
     Math.max(total - 1, 0)
   );
-
   const score = Math.min(Math.max(Number(restored.score) || 0, 0), total);
-  const isFinished =
-    Boolean(restored.isFinished) ||
-    (safeIndex >= total - 1 && !restored.isWaitingForAnswer);
+  const answeredAndPendingNext =
+    restored.isWaitingForAnswer === false && !restored.isFinished;
+  const nextIndex = answeredAndPendingNext ? safeIndex + 1 : safeIndex;
+  const boundedNextIndex = Math.min(nextIndex, Math.max(total - 1, 0));
+  const shouldFinish =
+    Boolean(restored.isFinished) || (answeredAndPendingNext && nextIndex >= total);
 
   return {
-    ...createInitialGameState(),
+    ...initialState,
     ...restored,
     questions: QUIZ_QUESTIONS,
-    currentQuestionIndex: safeIndex,
+    currentQuestionIndex: boundedNextIndex,
     score,
-    isFinished,
-    isWaitingForAnswer: isFinished ? false : true,
+    isFinished: shouldFinish,
+    isWaitingForAnswer: shouldFinish ? false : true,
+    selectedOption: null,
+    revealedCorrectOption: null,
   };
 };
 
@@ -102,14 +111,15 @@ const parseVoiceCommand = (rawText) => {
     return { type: 'repeat_question' };
   }
 
-  if (text.includes('мой счет')) {
+  if (text.includes('мой счет') || text.includes('мой счёт')) {
     return { type: 'current_score' };
   }
 
   if (
     text.includes('начать заново') ||
     text.includes('новая игра') ||
-    text.includes('сыграть еще')
+    text.includes('сыграть еще') ||
+    text.includes('сыграть ещё')
   ) {
     return { type: 'restart' };
   }
@@ -140,10 +150,13 @@ export class App extends React.Component {
       game: persistedState || createInitialGameState(),
       feedback: '',
       feedbackType: 'success',
+      celebrationType: 'success',
+      celebrationNonce: 0,
     };
 
     this.feedbackTimer = null;
     this.nextQuestionTimer = null;
+    this.celebrationTimer = null;
     this.assistant = initializeAssistant(() => this.getStateForAssistant());
 
     this.assistant.on('data', (event) => {
@@ -161,7 +174,7 @@ export class App extends React.Component {
 
     this.assistant.on('start', () => {
       this.say(
-        'Добро пожаловать в Голосовой Квиз. Я задам 7 вопросов. Отвечайте: А, Б, В или Г.'
+        `Добро пожаловать в Голосовой Квиз. Я задам ${QUIZ_QUESTIONS.length} вопросов. Отвечайте: А, Б, В или Г.`
       );
       this.repeatCurrentQuestion();
     });
@@ -181,6 +194,10 @@ export class App extends React.Component {
     if (this.nextQuestionTimer) {
       clearTimeout(this.nextQuestionTimer);
     }
+
+    if (this.celebrationTimer) {
+      clearTimeout(this.celebrationTimer);
+    }
   }
 
   getStateForAssistant() {
@@ -188,12 +205,15 @@ export class App extends React.Component {
     const currentQuestion = game.questions[game.currentQuestionIndex];
 
     return {
+      screen: game.isFinished ? 'result' : 'question',
       quiz: {
         current_question_index: game.currentQuestionIndex,
         total_questions: game.questions.length,
         score: game.score,
         is_waiting_for_answer: game.isWaitingForAnswer,
         is_finished: game.isFinished,
+        selected_option: game.selectedOption,
+        revealed_correct_option: game.revealedCorrectOption,
         question: currentQuestion
           ? {
               text: currentQuestion.question,
@@ -217,7 +237,7 @@ export class App extends React.Component {
       }
 
       return normalizeRestoredState(parsed);
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }
@@ -241,7 +261,9 @@ export class App extends React.Component {
     };
 
     const unsubscribe = this.assistant.sendData(data, () => {
-      unsubscribe();
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
     });
   }
 
@@ -257,28 +279,39 @@ export class App extends React.Component {
     }, FEEDBACK_DURATION);
   }
 
+  triggerCelebration(type = 'success') {
+    if (this.celebrationTimer) {
+      clearTimeout(this.celebrationTimer);
+    }
+
+    this.setState((prevState) => ({
+      celebrationType: type,
+      celebrationNonce: prevState.celebrationNonce + 1,
+    }));
+
+    this.celebrationTimer = setTimeout(() => {
+      this.setState({ celebrationNonce: 0 });
+    }, CELEBRATION_DURATION);
+  }
+
   dispatchAssistantAction(action) {
     if (!action || !action.type) {
       return;
     }
 
     switch (action.type) {
-      case 'select_option': {
+      case 'select_option':
         this.answerQuestion((action.option || '').toUpperCase());
         break;
-      }
-      case 'repeat_question': {
+      case 'repeat_question':
         this.repeatCurrentQuestion();
         break;
-      }
-      case 'current_score': {
+      case 'current_score':
         this.sayCurrentScore();
         break;
-      }
-      case 'restart_game': {
+      case 'restart_game':
         this.startNewGame();
         break;
-      }
       default:
         break;
     }
@@ -289,22 +322,18 @@ export class App extends React.Component {
     const command = parseVoiceCommand(text);
 
     switch (command.type) {
-      case 'answer': {
+      case 'answer':
         this.answerQuestion(command.option);
         break;
-      }
-      case 'repeat_question': {
+      case 'repeat_question':
         this.repeatCurrentQuestion();
         break;
-      }
-      case 'current_score': {
+      case 'current_score':
         this.sayCurrentScore();
         break;
-      }
-      case 'restart': {
+      case 'restart':
         this.startNewGame();
         break;
-      }
       default:
         break;
     }
@@ -319,6 +348,7 @@ export class App extends React.Component {
           currentQuestionIndex + (isWaitingForAnswer ? 0 : 1),
           QUIZ_QUESTIONS.length
         );
+
     this.say(`Ваш текущий счёт: ${score} правильных ответов из ${answeredCount}.`);
   }
 
@@ -326,7 +356,7 @@ export class App extends React.Component {
     const { game } = this.state;
     if (game.isFinished) {
       this.say(
-        `Игра завершена. Ваш результат: ${game.score} из ${game.questions.length}. Скажите: сыграть еще.`
+        `Игра завершена. Ваш результат: ${game.score} из ${game.questions.length}. Скажите: сыграть ещё.`
       );
       return;
     }
@@ -354,11 +384,16 @@ export class App extends React.Component {
       clearTimeout(this.nextQuestionTimer);
     }
 
+    if (this.celebrationTimer) {
+      clearTimeout(this.celebrationTimer);
+    }
+
     this.setState(
       {
         game: createInitialGameState(),
         feedback: '',
         feedbackType: 'success',
+        celebrationNonce: 0,
       },
       () => {
         this.say('Новая игра началась.');
@@ -384,10 +419,9 @@ export class App extends React.Component {
         const isCorrect = question.correctOption === option;
         const nextScore = isCorrect ? game.score + 1 : game.score;
         const isLastQuestion = game.currentQuestionIndex >= game.questions.length - 1;
-
         const feedback = isCorrect
           ? 'Верно!'
-          : `Ошибка. Правильный ответ: ${OPTION_LABELS[question.correctOption]} - ${question.options[question.correctOption]}.`;
+          : `Ошибка. Правильный ответ: ${OPTION_LABELS[question.correctOption]} — ${question.options[question.correctOption]}.`;
 
         return {
           game: {
@@ -395,6 +429,8 @@ export class App extends React.Component {
             score: nextScore,
             isWaitingForAnswer: false,
             isFinished: isLastQuestion,
+            selectedOption: option,
+            revealedCorrectOption: question.correctOption,
           },
           feedback,
           feedbackType: isCorrect ? 'success' : 'error',
@@ -408,6 +444,10 @@ export class App extends React.Component {
 
         this.say(feedback);
         this.setFeedback(feedback, feedbackType);
+
+        if (feedbackType === 'success') {
+          this.triggerCelebration(game.isFinished ? 'finish' : 'success');
+        }
 
         if (game.isFinished) {
           this.say(`Вы ответили правильно на ${game.score} из ${game.questions.length} вопросов.`);
@@ -445,6 +485,8 @@ export class App extends React.Component {
             ...game,
             currentQuestionIndex: nextQuestionIndex,
             isWaitingForAnswer: true,
+            selectedOption: null,
+            revealedCorrectOption: null,
           },
         };
       },
@@ -460,6 +502,8 @@ export class App extends React.Component {
         gameState={this.state.game}
         feedback={this.state.feedback}
         feedbackType={this.state.feedbackType}
+        celebrationType={this.state.celebrationType}
+        celebrationNonce={this.state.celebrationNonce}
         onAnswer={(option) => this.answerQuestion(option)}
         onNewGame={() => this.startNewGame()}
       />

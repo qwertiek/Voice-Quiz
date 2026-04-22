@@ -12,9 +12,31 @@ export const QuestionCard = ({
   currentIndex,
   total,
   disabled,
+  selectedOption,
+  revealedCorrectOption,
   onAnswer,
 }) => {
   const optionOrder = ['A', 'B', 'V', 'G'];
+
+  const getAnswerState = (optionKey) => {
+    if (!selectedOption || !revealedCorrectOption) {
+      return '';
+    }
+
+    if (optionKey === selectedOption && optionKey === revealedCorrectOption) {
+      return 'is-correct';
+    }
+
+    if (optionKey === selectedOption && optionKey !== revealedCorrectOption) {
+      return 'is-wrong';
+    }
+
+    if (selectedOption !== revealedCorrectOption && optionKey === revealedCorrectOption) {
+      return 'is-revealed';
+    }
+
+    return '';
+  };
 
   return (
     <section className="question-card" aria-live="polite">
@@ -30,7 +52,7 @@ export const QuestionCard = ({
         {optionOrder.map((optionKey) => (
           <button
             key={optionKey}
-            className="answer-button"
+            className={`answer-button ${getAnswerState(optionKey)}`.trim()}
             type="button"
             disabled={disabled}
             onClick={() => onAnswer(optionKey)}
