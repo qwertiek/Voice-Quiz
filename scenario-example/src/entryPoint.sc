@@ -9,13 +9,11 @@ require: sc/selectOption.sc
 require: sc/gameControl.sc
 require: sc/assistantReply.sc
 
-patterns:
-    $AnyText = $nonEmptyGarbage
-
 theme: /
     state: Start
         q!: $regex</start>
-        q!: (запусти | открой | включи) голосовой квиз
+        q!: голосовой квиз
+        q!: (запусти|открой|включи) голосовой квиз
         a: Начинаем Голосовой Квиз.
 
     state: Fallback

@@ -1,19 +1,19 @@
 theme: /
 
-    state: ПовторВопроса
+    state: RepeatQuestion
         q!: повтори вопрос
         script:
             repeatQuestion($context);
         a: Повторяю вопрос.
 
-    state: МойСчет
+    state: CurrentScore
         q!: мой счет
         q!: мой счёт
         script:
             requestCurrentScore($context);
         a: Озвучиваю текущий счёт.
 
-    state: НоваяИгра
+    state: RestartGame
         q!: начать заново
         q!: новая игра
         q!: сыграть еще

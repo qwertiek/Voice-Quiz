@@ -1,29 +1,33 @@
 theme: /
 
-    state: ВыборОтветаА
-        q!: [выбери] [вариант|ответ] а
+    state: OptionA
         q!: а
+        q!: вариант а
+        q!: ответ а
         script:
             selectOption("A", $context);
         a: Приняла вариант А.
 
-    state: ВыборОтветаБ
-        q!: [выбери] [вариант|ответ] б
+    state: OptionB
         q!: б
+        q!: вариант б
+        q!: ответ б
         script:
             selectOption("B", $context);
         a: Приняла вариант Б.
 
-    state: ВыборОтветаВ
-        q!: [выбери] [вариант|ответ] в
+    state: OptionV
         q!: в
+        q!: вариант в
+        q!: ответ в
         script:
             selectOption("V", $context);
         a: Приняла вариант В.
 
-    state: ВыборОтветаГ
-        q!: [выбери] [вариант|ответ] г
+    state: OptionG
         q!: г
+        q!: вариант г
+        q!: ответ г
         script:
             selectOption("G", $context);
         a: Приняла вариант Г.
