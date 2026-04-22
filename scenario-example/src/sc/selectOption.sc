@@ -39,3 +39,14 @@ theme: /
             log('selectOptionG: context: ' + JSON.stringify($context))
             selectOption("G", $context);
             addSuggestions(["Повтори вопрос", "Мой счёт"], $context);
+
+    state: SelectOptionByText
+        q!: [я] [выбери|выбираю|ответ|вариант] $AnyText::anyText
+
+        script:
+            log('selectOptionByText: context: ' + JSON.stringify($context))
+            var item_id = get_id_by_selected_item(get_request($context));
+            if (item_id) {
+                selectOption(item_id, $context);
+                addSuggestions(["Повтори вопрос", "Мой счёт"], $context);
+            }

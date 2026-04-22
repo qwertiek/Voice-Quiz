@@ -86,13 +86,10 @@ export class App extends React.Component {
 
     this.state = {
       game: persistedState || createInitialGameState(),
-      feedback: '',
-      feedbackType: 'success',
       celebrationType: 'success',
       celebrationNonce: 0,
     };
 
-    this.feedbackTimer = null;
     this.nextQuestionTimer = null;
     this.celebrationTimer = null;
     this.assistant = initializeAssistant(() => this.getStateForAssistant());
@@ -107,7 +104,7 @@ export class App extends React.Component {
     });
 
     this.assistant.on('start', () => {
-      this.say(
+      this.sendVoiceReply(
         `Добро пожаловать в Голосовой Квиз. Я задам ${QUIZ_QUESTIONS.length} вопросов. Отвечайте: А, Б, В или Г.`
       );
       this.repeatCurrentQuestion();
@@ -121,10 +118,6 @@ export class App extends React.Component {
   }
 
   componentWillUnmount() {
-    if (this.feedbackTimer) {
-      clearTimeout(this.feedbackTimer);
-    }
-
     if (this.nextQuestionTimer) {
       clearTimeout(this.nextQuestionTimer);
     }
@@ -150,15 +143,13 @@ export class App extends React.Component {
       item_selector: {
         items: optionItems,
         ignored_words: [
-          'а',
-          'б',
-          'в',
-          'г',
           'вариант',
           'ответ',
+          'выбери',
+          'выбираю',
+          'мой',
           'повтори',
           'вопрос',
-          'мой',
           'счет',
           'счёт',
           'начать',
@@ -214,12 +205,12 @@ export class App extends React.Component {
     }
   }
 
-  say(text) {
+  sendVoiceReply(value) {
     const data = {
       action: {
-        action_id: 'voice_quiz_feedback',
+        action_id: 'done',
         parameters: {
-          value: text,
+          value,
         },
       },
     };
@@ -229,18 +220,6 @@ export class App extends React.Component {
         unsubscribe();
       }
     });
-  }
-
-  setFeedback(message, type = 'success') {
-    if (this.feedbackTimer) {
-      clearTimeout(this.feedbackTimer);
-    }
-
-    this.setState({ feedback: message, feedbackType: type });
-
-    this.feedbackTimer = setTimeout(() => {
-      this.setState({ feedback: '' });
-    }, FEEDBACK_DURATION);
   }
 
   triggerCelebration(type = 'success') {
@@ -291,13 +270,13 @@ export class App extends React.Component {
           QUIZ_QUESTIONS.length
         );
 
-    this.say(`Ваш текущий счёт: ${score} правильных ответов из ${answeredCount}.`);
+    this.sendVoiceReply(`Ваш текущий счёт: ${score} правильных ответов из ${answeredCount}.`);
   }
 
   repeatCurrentQuestion() {
     const { game } = this.state;
     if (game.isFinished) {
-      this.say(
+      this.sendVoiceReply(
         `Игра завершена. Ваш результат: ${game.score} из ${game.questions.length}. Скажите: сыграть ещё.`
       );
       return;
@@ -308,7 +287,7 @@ export class App extends React.Component {
       return;
     }
 
-    this.say(
+    this.sendVoiceReply(
       `Вопрос ${game.currentQuestionIndex + 1}. ${question.question} ` +
         `Вариант А: ${question.options.A}. ` +
         `Вариант Б: ${question.options.B}. ` +
@@ -318,10 +297,6 @@ export class App extends React.Component {
   }
 
   startNewGame() {
-    if (this.feedbackTimer) {
-      clearTimeout(this.feedbackTimer);
-    }
-
     if (this.nextQuestionTimer) {
       clearTimeout(this.nextQuestionTimer);
     }
@@ -333,12 +308,10 @@ export class App extends React.Component {
     this.setState(
       {
         game: createInitialGameState(),
-        feedback: '',
-        feedbackType: 'success',
         celebrationNonce: 0,
       },
       () => {
-        this.say('Новая игра началась.');
+        this.sendVoiceReply('Новая игра началась.');
         this.repeatCurrentQuestion();
       }
     );
@@ -361,9 +334,6 @@ export class App extends React.Component {
         const isCorrect = question.correctOption === option;
         const nextScore = isCorrect ? game.score + 1 : game.score;
         const isLastQuestion = game.currentQuestionIndex >= game.questions.length - 1;
-        const feedback = isCorrect
-          ? 'Верно!'
-          : `Ошибка. Правильный ответ: ${OPTION_LABELS[question.correctOption]} — ${question.options[question.correctOption]}.`;
 
         return {
           game: {
@@ -374,25 +344,31 @@ export class App extends React.Component {
             selectedOption: option,
             revealedCorrectOption: question.correctOption,
           },
-          feedback,
-          feedbackType: isCorrect ? 'success' : 'error',
         };
       },
       () => {
-        const { feedback, feedbackType, game } = this.state;
-        if (!feedback) {
+        const { game } = this.state;
+        const question = game.questions[game.currentQuestionIndex];
+
+        if (!question || !game.selectedOption) {
           return;
         }
 
-        this.say(feedback);
-        this.setFeedback(feedback, feedbackType);
+        const isCorrect = game.selectedOption === question.correctOption;
+        const feedback = isCorrect
+          ? 'Верно!'
+          : `Ошибка. Правильный ответ: ${OPTION_LABELS[question.correctOption]} — ${question.options[question.correctOption]}.`;
 
-        if (feedbackType === 'success') {
+        this.sendVoiceReply(feedback);
+
+        if (isCorrect) {
           this.triggerCelebration(game.isFinished ? 'finish' : 'success');
         }
 
         if (game.isFinished) {
-          this.say(`Вы ответили правильно на ${game.score} из ${game.questions.length} вопросов.`);
+          this.sendVoiceReply(
+            `Вы ответили правильно на ${game.score} из ${game.questions.length} вопросов.`
+          );
           return;
         }
 

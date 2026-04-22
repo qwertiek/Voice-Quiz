@@ -1,8 +1,8 @@
 theme: /
     
     state: VoiceFeedback
-        event!: voice_quiz_feedback
-        event!: VOICE_QUIZ_FEEDBACK
+        event!: done
+        event!: DONE
         
         script:
             log('voiceFeedback: context: ' + JSON.stringify($context))
@@ -12,4 +12,4 @@ theme: /
             $reactions.answer({
                 "value": params.value || "",
             });
-            addSuggestions(["Повтори вопрос", "Мой счёт", "Новая игра"], $context);
+            addSuggestions(["А", "Повтори вопрос", "Мой счёт", "Новая игра"], $context);
