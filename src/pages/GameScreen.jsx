@@ -4,8 +4,6 @@ import { ScoreBoard } from '../components/ScoreBoard';
 
 export const GameScreen = ({
   gameState,
-  feedback,
-  feedbackType,
   celebrationType,
   celebrationNonce,
   onAnswer,
@@ -22,13 +20,7 @@ export const GameScreen = ({
   } = gameState;
 
   const currentQuestion = questions[currentQuestionIndex];
-  const voiceCommands = [
-    'А, Б, В, Г',
-    'Вариант А',
-    'Повтори вопрос',
-    'Мой счёт',
-    'Новая игра',
-  ];
+  const voiceCommands = ['А, Б, В, Г', 'Вариант А', 'Повтори вопрос', 'Мой счёт', 'Новая игра'];
 
   return (
     <main className="quiz-layout">
@@ -69,15 +61,6 @@ export const GameScreen = ({
 
       {isFinished && (
         <ScoreBoard score={score} total={questions.length} onRestart={onNewGame} />
-      )}
-
-      {feedback && (
-        <div
-          className={`toast-message ${feedbackType === 'success' ? 'success' : 'error'}`}
-          role="status"
-        >
-          {feedback}
-        </div>
       )}
 
       <footer className="commands-panel">

@@ -16,6 +16,8 @@ const OPTION_LABELS = {
   G: 'Г',
 };
 
+const ANSWER_OPTION_ORDER = ['A', 'B', 'V', 'G'];
+
 const createInitialGameState = () => ({
   questions: QUIZ_QUESTIONS,
   currentQuestionIndex: 0,
@@ -70,74 +72,10 @@ const normalizeRestoredState = (restored) => {
     currentQuestionIndex: boundedNextIndex,
     score,
     isFinished: shouldFinish,
-    isWaitingForAnswer: shouldFinish ? false : true,
+    isWaitingForAnswer: !shouldFinish,
     selectedOption: null,
     revealedCorrectOption: null,
   };
-};
-
-const normalizeText = (text) =>
-  (text || '')
-    .toLowerCase()
-    .replace(/ё/g, 'е')
-    .replace(/[.,!?;:]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const detectOption = (text) => {
-  const normalized = ` ${normalizeText(text)} `;
-
-  if (/\b(а|вариант а|ответ а)\b/.test(normalized)) return 'A';
-  if (/\b(б|вариант б|ответ б)\b/.test(normalized)) return 'B';
-  if (/\b(в|вариант в|ответ в)\b/.test(normalized)) return 'V';
-  if (/\b(г|вариант г|ответ г)\b/.test(normalized)) return 'G';
-
-  return null;
-};
-
-const parseVoiceCommand = (rawText) => {
-  const text = normalizeText(rawText);
-
-  if (!text) {
-    return { type: 'unknown' };
-  }
-
-  const option = detectOption(text);
-  if (option) {
-    return { type: 'answer', option };
-  }
-
-  if (text.includes('повтори вопрос')) {
-    return { type: 'repeat_question' };
-  }
-
-  if (text.includes('мой счет') || text.includes('мой счёт')) {
-    return { type: 'current_score' };
-  }
-
-  if (
-    text.includes('начать заново') ||
-    text.includes('новая игра') ||
-    text.includes('сыграть еще') ||
-    text.includes('сыграть ещё')
-  ) {
-    return { type: 'restart' };
-  }
-
-  return { type: 'unknown' };
-};
-
-const getCommandText = (event) => {
-  if (!event) {
-    return '';
-  }
-
-  if (typeof event === 'string') {
-    return event;
-  }
-
-  const source = event.command || event;
-  return source?.raw_text || source?.phrase || source?.text || source?.command || '';
 };
 
 export class App extends React.Component {
@@ -166,10 +104,6 @@ export class App extends React.Component {
 
       const { action } = event;
       this.dispatchAssistantAction(action);
-    });
-
-    this.assistant.on('command', (event) => {
-      this.handleVoiceEvent(event);
     });
 
     this.assistant.on('start', () => {
@@ -203,9 +137,39 @@ export class App extends React.Component {
   getStateForAssistant() {
     const { game } = this.state;
     const currentQuestion = game.questions[game.currentQuestionIndex];
+    const optionItems = currentQuestion
+      ? ANSWER_OPTION_ORDER.map((optionKey, index) => ({
+          number: index + 1,
+          id: optionKey,
+          title: `${OPTION_LABELS[optionKey]} ${currentQuestion.options[optionKey]}`,
+        }))
+      : [];
 
     return {
       screen: game.isFinished ? 'result' : 'question',
+      item_selector: {
+        items: optionItems,
+        ignored_words: [
+          'а',
+          'б',
+          'в',
+          'г',
+          'вариант',
+          'ответ',
+          'повтори',
+          'вопрос',
+          'мой',
+          'счет',
+          'счёт',
+          'начать',
+          'заново',
+          'новая',
+          'игра',
+          'сыграть',
+          'еще',
+          'ещё',
+        ],
+      },
       quiz: {
         current_question_index: game.currentQuestionIndex,
         total_questions: game.questions.length,
@@ -310,28 +274,6 @@ export class App extends React.Component {
         this.sayCurrentScore();
         break;
       case 'restart_game':
-        this.startNewGame();
-        break;
-      default:
-        break;
-    }
-  }
-
-  handleVoiceEvent(event) {
-    const text = getCommandText(event);
-    const command = parseVoiceCommand(text);
-
-    switch (command.type) {
-      case 'answer':
-        this.answerQuestion(command.option);
-        break;
-      case 'repeat_question':
-        this.repeatCurrentQuestion();
-        break;
-      case 'current_score':
-        this.sayCurrentScore();
-        break;
-      case 'restart':
         this.startNewGame();
         break;
       default:
@@ -500,8 +442,6 @@ export class App extends React.Component {
     return (
       <GameScreen
         gameState={this.state.game}
-        feedback={this.state.feedback}
-        feedbackType={this.state.feedbackType}
         celebrationType={this.state.celebrationType}
         celebrationNonce={this.state.celebrationNonce}
         onAnswer={(option) => this.answerQuestion(option)}
