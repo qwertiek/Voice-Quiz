@@ -10,5 +10,3 @@ theme: /
             log('restartGame: context: ' + JSON.stringify($context))
             restartGame($context);
             addSuggestions(["Повтори вопрос", "Мой счёт"], $context);
-
-        a: Начинаем новую игру.

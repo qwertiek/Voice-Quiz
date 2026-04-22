@@ -5,10 +5,6 @@ theme: /
         q!: вариант а
         q!: ответ а
 
-        random:
-            a: Приняла вариант А.
-            a: Выбираю вариант А.
-
         script:
             log('selectOptionA: context: ' + JSON.stringify($context))
             selectOption("A", $context);
@@ -18,10 +14,6 @@ theme: /
         q!: б
         q!: вариант б
         q!: ответ б
-
-        random:
-            a: Приняла вариант Б.
-            a: Выбираю вариант Б.
 
         script:
             log('selectOptionB: context: ' + JSON.stringify($context))
@@ -33,10 +25,6 @@ theme: /
         q!: вариант в
         q!: ответ в
 
-        random:
-            a: Приняла вариант В.
-            a: Выбираю вариант В.
-
         script:
             log('selectOptionV: context: ' + JSON.stringify($context))
             selectOption("V", $context);
@@ -46,10 +34,6 @@ theme: /
         q!: г
         q!: вариант г
         q!: ответ г
-
-        random:
-            a: Приняла вариант Г.
-            a: Выбираю вариант Г.
 
         script:
             log('selectOptionG: context: ' + JSON.stringify($context))

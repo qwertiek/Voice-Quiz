@@ -8,5 +8,3 @@ theme: /
             log('currentScore: context: ' + JSON.stringify($context))
             requestCurrentScore($context);
             addSuggestions(["Повтори вопрос", "Новая игра"], $context);
-
-        a: Озвучиваю текущий счёт.
