@@ -4,35 +4,54 @@ import { createAssistant, createSmartappDebugger } from '@salutejs/client';
 import './App.css';
 import { GameScreen } from './pages/GameScreen';
 import { QUIZ_QUESTIONS } from './data/questions';
+import {
+  CELEBRATION_DURATION_MS,
+  DEDUPE_ACTION_WINDOW_MS,
+  MAX_PENDING_VOICE_EVENTS,
+  NEXT_QUESTION_DELAY_MS,
+  VOICE_ACK_TIMEOUT_MS,
+  VOICE_BLOCKING_MIN_SETTLE_MS,
+  VOICE_PROMPT_LOCK_BASE_MS,
+  VOICE_PROMPT_LOCK_MAX_MS,
+  VOICE_PROMPT_LOCK_MIN_MS,
+  VOICE_PROMPT_LOCK_PER_CHAR_MS,
+  VOICE_RETRY_DELAY_MS,
+} from './game/config';
+import { GAME_PHASES } from './game/states';
+import {
+  applyAnswer,
+  advanceToNextQuestion,
+  createGameStartedEvent,
+  createInitialGameState,
+  createInvalidActionEvent,
+  createQuestionPromptEvent,
+  createResultPromptEvent,
+  createScoreReportEvent,
+  toAssistantState,
+} from './game/engine/gameEngine';
+import {
+  ACTION_TYPES,
+  INVALID_ACTION_REASONS,
+  getActionSignature,
+  validateIncomingAction,
+  validateOutgoingEvent,
+} from './game/voice/contract';
+import {
+  VOICE_EVENT_POLICIES,
+  VoiceEventScheduler,
+} from './game/voice/scheduler';
 
-const STORAGE_KEY = 'voice_quiz_game_state_v1';
-const FEEDBACK_DURATION = 1800;
-const CELEBRATION_DURATION = 1600;
-
-const OPTION_LABELS = {
-  A: 'А',
-  B: 'Б',
-  V: 'В',
-  G: 'Г',
-};
-
-const ANSWER_OPTION_ORDER = ['A', 'B', 'V', 'G'];
-
-const createInitialGameState = () => ({
-  questions: QUIZ_QUESTIONS,
-  currentQuestionIndex: 0,
-  score: 0,
-  isWaitingForAnswer: true,
-  isFinished: false,
-  selectedOption: null,
-  revealedCorrectOption: null,
-});
+const DEBUG_SMARTAPP_NAME = 'Quiz';
+const VOICE_LOCK_EVENT_TYPES = new Set([
+  'game_started',
+  'question_prompt',
+]);
 
 const initializeAssistant = (getState) => {
   if (process.env.NODE_ENV === 'development') {
     return createSmartappDebugger({
       token: process.env.REACT_APP_TOKEN ?? '',
-      initPhrase: `Запусти ${process.env.REACT_APP_SMARTAPP}`,
+      initPhrase: `Запусти ${process.env.REACT_APP_SMARTAPP || DEBUG_SMARTAPP_NAME}`,
       getState,
       nativePanel: {
         defaultText: 'Говорите!',
@@ -45,181 +64,247 @@ const initializeAssistant = (getState) => {
   return createAssistant({ getState });
 };
 
-const normalizeRestoredState = (restored) => {
-  if (!restored) {
-    return null;
-  }
-
-  const total = QUIZ_QUESTIONS.length;
-  const initialState = createInitialGameState();
-  const rawIndex = Number(restored.currentQuestionIndex);
-  const safeIndex = Math.min(
-    Math.max(Number.isFinite(rawIndex) ? rawIndex : 0, 0),
-    Math.max(total - 1, 0)
-  );
-  const score = Math.min(Math.max(Number(restored.score) || 0, 0), total);
-  const answeredAndPendingNext =
-    restored.isWaitingForAnswer === false && !restored.isFinished;
-  const nextIndex = answeredAndPendingNext ? safeIndex + 1 : safeIndex;
-  const boundedNextIndex = Math.min(nextIndex, Math.max(total - 1, 0));
-  const shouldFinish =
-    Boolean(restored.isFinished) || (answeredAndPendingNext && nextIndex >= total);
-
-  return {
-    ...initialState,
-    ...restored,
-    questions: QUIZ_QUESTIONS,
-    currentQuestionIndex: boundedNextIndex,
-    score,
-    isFinished: shouldFinish,
-    isWaitingForAnswer: !shouldFinish,
-    selectedOption: null,
-    revealedCorrectOption: null,
-  };
-};
-
 export class App extends React.Component {
   constructor(props) {
     super(props);
 
-    const persistedState = this.restoreState();
-
     this.state = {
-      game: persistedState || createInitialGameState(),
+      game: createInitialGameState(QUIZ_QUESTIONS),
       celebrationType: 'success',
       celebrationNonce: 0,
+      isVoicePromptLocked: false,
     };
 
-    this.nextQuestionTimer = null;
     this.celebrationTimer = null;
+    this.nextQuestionTimer = null;
+    this.initialAnnouncementTimer = null;
+    this.voicePromptLockTimer = null;
+    this.voicePromptLockId = 0;
+    this.hasAnnouncedWelcome = false;
+    this.lastActionSignature = '';
+    this.lastActionAt = 0;
     this.assistant = initializeAssistant(() => this.getStateForAssistant());
+    this.voiceScheduler = new VoiceEventScheduler({
+      getGameState: () => this.state.game,
+      sendPayload: (event, settle) => this.sendVoicePayload(event, settle),
+      onError: (error, event) => {
+        console.error('Failed to flush queued voice event.', event, error);
+      },
+      onTrace: process.env.REACT_APP_VOICE_DEBUG === 'true'
+        ? (entry) => console.debug('[voice]', entry)
+        : null,
+      maxPendingEvents: MAX_PENDING_VOICE_EVENTS,
+      ackTimeoutMs: VOICE_ACK_TIMEOUT_MS,
+      retryDelayMs: VOICE_RETRY_DELAY_MS,
+      minBlockingSettleMs: VOICE_BLOCKING_MIN_SETTLE_MS,
+    });
 
     this.assistant.on('data', (event) => {
-      if (event?.type === 'character' || event?.type === 'insets') {
+      if (!event || typeof event !== 'object') {
         return;
       }
 
-      const { action } = event;
-      this.dispatchAssistantAction(action);
+      if (event.type === 'character' || event.type === 'insets') {
+        return;
+      }
+
+      this.dispatchAssistantAction(event.action);
     });
 
     this.assistant.on('start', () => {
-      this.sendVoiceReply(
-        `Добро пожаловать в Голосовой Квиз. Я задам ${QUIZ_QUESTIONS.length} вопросов. Отвечайте: А, Б, В или Г.`
-      );
-      this.repeatCurrentQuestion();
+      this.voiceScheduler.setReady(true);
+      this.scheduleInitialAnnouncement();
+    });
+
+    this.assistant.on('error', (event) => {
+      console.error('Assistant transport error.', event);
+    });
+
+    this.assistant.on('tts', (event) => {
+      this.traceVoice('assistant_tts', {
+        event,
+      });
     });
   }
 
-  componentDidUpdate(_prevProps, prevState) {
-    if (prevState.game !== this.state.game) {
-      this.saveState();
-    }
+  componentDidMount() {
+    this.initialAnnouncementTimer = setTimeout(() => {
+      this.scheduleInitialAnnouncement();
+    }, 1200);
   }
 
   componentWillUnmount() {
+    if (this.celebrationTimer) {
+      clearTimeout(this.celebrationTimer);
+    }
+
     if (this.nextQuestionTimer) {
       clearTimeout(this.nextQuestionTimer);
     }
 
-    if (this.celebrationTimer) {
-      clearTimeout(this.celebrationTimer);
+    if (this.initialAnnouncementTimer) {
+      clearTimeout(this.initialAnnouncementTimer);
     }
+
+    if (this.voicePromptLockTimer) {
+      clearTimeout(this.voicePromptLockTimer);
+    }
+
+    this.voiceScheduler.dispose();
+  }
+
+  traceVoice(status, details = {}) {
+    if (process.env.REACT_APP_VOICE_DEBUG === 'true') {
+      console.debug('[voice]', {
+        status,
+        ...details,
+      });
+    }
+  }
+
+  getVoicePromptLockDuration(phrase) {
+    const normalizedPhrase = typeof phrase === 'string' ? phrase.trim() : '';
+    const estimatedMs =
+      VOICE_PROMPT_LOCK_BASE_MS + normalizedPhrase.length * VOICE_PROMPT_LOCK_PER_CHAR_MS;
+
+    return Math.min(
+      Math.max(estimatedMs, VOICE_PROMPT_LOCK_MIN_MS),
+      VOICE_PROMPT_LOCK_MAX_MS
+    );
+  }
+
+  releaseVoicePromptLock() {
+    this.voicePromptLockId += 1;
+
+    if (this.voicePromptLockTimer) {
+      clearTimeout(this.voicePromptLockTimer);
+      this.voicePromptLockTimer = null;
+    }
+
+    if (this.state.isVoicePromptLocked) {
+      this.setState({ isVoicePromptLocked: false });
+    }
+  }
+
+  lockAnswersForVoicePrompt(event) {
+    if (!VOICE_LOCK_EVENT_TYPES.has(event.eventType)) {
+      return;
+    }
+
+    const phrase = event.payload && typeof event.payload.phrase === 'string'
+      ? event.payload.phrase
+      : '';
+    const durationMs = this.getVoicePromptLockDuration(phrase);
+    const lockId = this.voicePromptLockId + 1;
+    this.voicePromptLockId = lockId;
+
+    if (this.voicePromptLockTimer) {
+      clearTimeout(this.voicePromptLockTimer);
+    }
+
+    this.setState({ isVoicePromptLocked: true });
+    this.traceVoice('ui_answers_locked', {
+      eventType: event.eventType,
+      voiceTurnId: event.payload && event.payload.voiceTurnId,
+      phraseLength: phrase.length,
+      durationMs,
+    });
+
+    this.voicePromptLockTimer = setTimeout(() => {
+      if (lockId !== this.voicePromptLockId) {
+        return;
+      }
+
+      this.voicePromptLockTimer = null;
+      this.setState({ isVoicePromptLocked: false });
+      this.traceVoice('ui_answers_unlocked', {
+        eventType: event.eventType,
+        voiceTurnId: event.payload && event.payload.voiceTurnId,
+      });
+    }, durationMs);
   }
 
   getStateForAssistant() {
-    const { game } = this.state;
-    const currentQuestion = game.questions[game.currentQuestionIndex];
-    const optionItems = currentQuestion
-      ? ANSWER_OPTION_ORDER.map((optionKey, index) => ({
-          number: index + 1,
-          id: optionKey,
-          title: `${OPTION_LABELS[optionKey]} ${currentQuestion.options[optionKey]}`,
-        }))
-      : [];
-
     return {
-      screen: game.isFinished ? 'result' : 'question',
-      item_selector: {
-        items: optionItems,
-        ignored_words: [
-          'вариант',
-          'ответ',
-          'выбери',
-          'выбираю',
-          'мой',
-          'повтори',
-          'вопрос',
-          'счет',
-          'счёт',
-          'начать',
-          'заново',
-          'новая',
-          'игра',
-          'сыграть',
-          'еще',
-          'ещё',
-        ],
-      },
-      quiz: {
-        current_question_index: game.currentQuestionIndex,
-        total_questions: game.questions.length,
-        score: game.score,
-        is_waiting_for_answer: game.isWaitingForAnswer,
-        is_finished: game.isFinished,
-        selected_option: game.selectedOption,
-        revealed_correct_option: game.revealedCorrectOption,
-        question: currentQuestion
-          ? {
-              text: currentQuestion.question,
-              options: currentQuestion.options,
-            }
-          : null,
-      },
+      game: toAssistantState(this.state.game),
     };
   }
 
-  restoreState() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        return null;
-      }
-
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object') {
-        return null;
-      }
-
-      return normalizeRestoredState(parsed);
-    } catch (_error) {
-      return null;
-    }
-  }
-
-  saveState() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state.game));
-    } catch (error) {
-      console.error('Failed to save game state', error);
-    }
-  }
-
-  sendVoiceReply(value) {
+  sendVoicePayload(event, onSettled) {
+    const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
     const data = {
       action: {
-        action_id: 'done',
-        parameters: {
-          value,
-        },
+        action_id: event.eventType,
+        parameters: payload,
       },
     };
 
-    const unsubscribe = this.assistant.sendData(data, () => {
+    this.lockAnswersForVoicePrompt(event);
+    this.traceVoice('sendData_call', {
+      eventType: event.eventType,
+      voiceTurnId: payload.voiceTurnId,
+      phase: payload.phase,
+      questionIndex: payload.questionIndex,
+      phraseLength: typeof payload.phrase === 'string' ? payload.phrase.length : 0,
+      phrase: payload.phrase,
+    });
+
+    let unsubscribe;
+    unsubscribe = this.assistant.sendData(data, () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
+
+      this.traceVoice('sendData_callback', {
+        eventType: event.eventType,
+        voiceTurnId: payload.voiceTurnId,
+        phase: payload.phase,
+        questionIndex: payload.questionIndex,
+      });
+
+      if (typeof onSettled === 'function') {
+        onSettled();
+      }
     });
+  }
+
+  sendGameEvent(event, { policy = VOICE_EVENT_POLICIES.ENQUEUE } = {}) {
+    if (!event || typeof event.eventType !== 'string') {
+      return;
+    }
+
+    const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+    if (!validateOutgoingEvent(event.eventType, payload)) {
+      console.error('Refused to send invalid game event payload.', event);
+      return;
+    }
+
+    this.voiceScheduler.enqueue(event, { policy });
+  }
+
+  rememberAction(action) {
+    const signature = getActionSignature(action);
+    if (!signature) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (signature === this.lastActionSignature && now - this.lastActionAt < DEDUPE_ACTION_WINDOW_MS) {
+      return false;
+    }
+
+    this.lastActionSignature = signature;
+    this.lastActionAt = now;
+    return true;
+  }
+
+  scheduleInitialAnnouncement() {
+    if (this.hasAnnouncedWelcome) {
+      return;
+    }
+
+    this.hasAnnouncedWelcome = true;
+    this.sendGameEvent(createGameStartedEvent(this.state.game));
   }
 
   triggerCelebration(type = 'success') {
@@ -234,184 +319,121 @@ export class App extends React.Component {
 
     this.celebrationTimer = setTimeout(() => {
       this.setState({ celebrationNonce: 0 });
-    }, CELEBRATION_DURATION);
+    }, CELEBRATION_DURATION_MS);
   }
 
-  dispatchAssistantAction(action) {
-    if (!action || !action.type) {
+  clearPendingTransition() {
+    if (this.nextQuestionTimer) {
+      clearTimeout(this.nextQuestionTimer);
+      this.nextQuestionTimer = null;
+    }
+  }
+
+  startNewGame() {
+    this.clearPendingTransition();
+    this.releaseVoicePromptLock();
+
+    const nextGame = createInitialGameState(QUIZ_QUESTIONS);
+    this.setState(
+      {
+        game: nextGame,
+        celebrationNonce: 0,
+      },
+      () => {
+        this.sendGameEvent(createGameStartedEvent(this.state.game), {
+          policy: VOICE_EVENT_POLICIES.INTERRUPT,
+        });
+      }
+    );
+  }
+
+  moveToNextQuestion({ sendVoiceEvent = true } = {}) {
+    this.clearPendingTransition();
+    const result = advanceToNextQuestion(this.state.game);
+    this.setState({ game: result.game }, () => {
+      if (sendVoiceEvent) {
+        this.sendGameEvent(result.event);
+      }
+    });
+  }
+
+  handleAnswer(option) {
+    const { game } = this.state;
+    this.releaseVoicePromptLock();
+
+    if (game.phase === GAME_PHASES.RESULT) {
+      this.sendGameEvent(createResultPromptEvent(game), {
+        policy: VOICE_EVENT_POLICIES.INTERRUPT,
+      });
+      return;
+    }
+
+    if (game.phase === GAME_PHASES.FEEDBACK) {
+      this.sendGameEvent(createInvalidActionEvent(game, INVALID_ACTION_REASONS.FEEDBACK_PENDING), {
+        policy: VOICE_EVENT_POLICIES.INTERRUPT,
+      });
+      return;
+    }
+
+    this.clearPendingTransition();
+    const result = applyAnswer(game, option);
+    this.setState({ game: result.game }, () => {
+      if (result.celebrationType) {
+        this.triggerCelebration(result.celebrationType);
+      }
+
+      this.sendGameEvent(result.event, {
+        policy: VOICE_EVENT_POLICIES.INTERRUPT,
+      });
+
+      if (result.game.phase === GAME_PHASES.FEEDBACK) {
+        this.nextQuestionTimer = setTimeout(() => {
+          this.moveToNextQuestion({ sendVoiceEvent: !result.includesNextQuestion });
+        }, NEXT_QUESTION_DELAY_MS);
+      }
+    });
+  }
+
+  dispatchAssistantAction(action, options = {}) {
+    if (!validateIncomingAction(action)) {
+      return;
+    }
+
+    if (!options.skipDedupe && !this.rememberAction(action)) {
       return;
     }
 
     switch (action.type) {
-      case 'select_option':
-        this.answerQuestion((action.option || '').toUpperCase());
-        break;
-      case 'repeat_question':
-        this.repeatCurrentQuestion();
-        break;
-      case 'current_score':
-        this.sayCurrentScore();
-        break;
-      case 'restart_game':
-        this.startNewGame();
-        break;
-      default:
-        break;
-    }
-  }
-
-  sayCurrentScore() {
-    const { score, currentQuestionIndex, isWaitingForAnswer, isFinished } =
-      this.state.game;
-    const answeredCount = isFinished
-      ? QUIZ_QUESTIONS.length
-      : Math.min(
-          currentQuestionIndex + (isWaitingForAnswer ? 0 : 1),
-          QUIZ_QUESTIONS.length
-        );
-
-    this.sendVoiceReply(`Ваш текущий счёт: ${score} правильных ответов из ${answeredCount}.`);
-  }
-
-  repeatCurrentQuestion() {
-    const { game } = this.state;
-    if (game.isFinished) {
-      this.sendVoiceReply(
-        `Игра завершена. Ваш результат: ${game.score} из ${game.questions.length}. Скажите: сыграть ещё.`
-      );
-      return;
-    }
-
-    const question = game.questions[game.currentQuestionIndex];
-    if (!question) {
-      return;
-    }
-
-    this.sendVoiceReply(
-      `Вопрос ${game.currentQuestionIndex + 1}. ${question.question} ` +
-        `Вариант А: ${question.options.A}. ` +
-        `Вариант Б: ${question.options.B}. ` +
-        `Вариант В: ${question.options.V}. ` +
-        `Вариант Г: ${question.options.G}.`
-    );
-  }
-
-  startNewGame() {
-    if (this.nextQuestionTimer) {
-      clearTimeout(this.nextQuestionTimer);
-    }
-
-    if (this.celebrationTimer) {
-      clearTimeout(this.celebrationTimer);
-    }
-
-    this.setState(
-      {
-        game: createInitialGameState(),
-        celebrationNonce: 0,
-      },
-      () => {
-        this.sendVoiceReply('Новая игра началась.');
-        this.repeatCurrentQuestion();
-      }
-    );
-  }
-
-  answerQuestion(option) {
-    this.setState(
-      (prevState) => {
-        const { game } = prevState;
-
-        if (game.isFinished || !game.isWaitingForAnswer) {
-          return null;
-        }
-
-        const question = game.questions[game.currentQuestionIndex];
-        if (!question || !OPTION_LABELS[option]) {
-          return null;
-        }
-
-        const isCorrect = question.correctOption === option;
-        const nextScore = isCorrect ? game.score + 1 : game.score;
-        const isLastQuestion = game.currentQuestionIndex >= game.questions.length - 1;
-
-        return {
-          game: {
-            ...game,
-            score: nextScore,
-            isWaitingForAnswer: false,
-            isFinished: isLastQuestion,
-            selectedOption: option,
-            revealedCorrectOption: question.correctOption,
-          },
-        };
-      },
-      () => {
-        const { game } = this.state;
-        const question = game.questions[game.currentQuestionIndex];
-
-        if (!question || !game.selectedOption) {
-          return;
-        }
-
-        const isCorrect = game.selectedOption === question.correctOption;
-        const feedback = isCorrect
-          ? 'Верно!'
-          : `Ошибка. Правильный ответ: ${OPTION_LABELS[question.correctOption]} — ${question.options[question.correctOption]}.`;
-
-        this.sendVoiceReply(feedback);
-
-        if (isCorrect) {
-          this.triggerCelebration(game.isFinished ? 'finish' : 'success');
-        }
-
-        if (game.isFinished) {
-          this.sendVoiceReply(
-            `Вы ответили правильно на ${game.score} из ${game.questions.length} вопросов.`
+      case ACTION_TYPES.SELECT_OPTION:
+        this.handleAnswer((action.option || '').toUpperCase());
+        return;
+      case ACTION_TYPES.REPEAT_QUESTION:
+        if (this.state.game.phase === GAME_PHASES.QUESTION) {
+          this.sendGameEvent(createQuestionPromptEvent(this.state.game), {
+            policy: VOICE_EVENT_POLICIES.INTERRUPT,
+          });
+        } else if (this.state.game.phase === GAME_PHASES.RESULT) {
+          this.sendGameEvent(createResultPromptEvent(this.state.game), {
+            policy: VOICE_EVENT_POLICIES.INTERRUPT,
+          });
+        } else {
+          this.sendGameEvent(
+            createInvalidActionEvent(this.state.game, INVALID_ACTION_REASONS.FEEDBACK_PENDING),
+            { policy: VOICE_EVENT_POLICIES.INTERRUPT }
           );
-          return;
         }
-
-        this.nextQuestionTimer = setTimeout(() => {
-          this.moveToNextQuestion();
-        }, FEEDBACK_DURATION);
-      }
-    );
-  }
-
-  moveToNextQuestion() {
-    this.setState(
-      (prevState) => {
-        const { game } = prevState;
-        if (game.isFinished) {
-          return null;
-        }
-
-        const nextQuestionIndex = game.currentQuestionIndex + 1;
-        if (nextQuestionIndex >= game.questions.length) {
-          return {
-            game: {
-              ...game,
-              isFinished: true,
-              isWaitingForAnswer: false,
-            },
-          };
-        }
-
-        return {
-          game: {
-            ...game,
-            currentQuestionIndex: nextQuestionIndex,
-            isWaitingForAnswer: true,
-            selectedOption: null,
-            revealedCorrectOption: null,
-          },
-        };
-      },
-      () => {
-        this.repeatCurrentQuestion();
-      }
-    );
+        return;
+      case ACTION_TYPES.CURRENT_SCORE:
+        this.sendGameEvent(createScoreReportEvent(this.state.game), {
+          policy: VOICE_EVENT_POLICIES.INTERRUPT,
+        });
+        return;
+      case ACTION_TYPES.RESTART_GAME:
+        this.startNewGame();
+        return;
+      default:
+        return;
+    }
   }
 
   render() {
@@ -420,8 +442,13 @@ export class App extends React.Component {
         gameState={this.state.game}
         celebrationType={this.state.celebrationType}
         celebrationNonce={this.state.celebrationNonce}
-        onAnswer={(option) => this.answerQuestion(option)}
-        onNewGame={() => this.startNewGame()}
+        isVoicePromptLocked={this.state.isVoicePromptLocked}
+        onAnswer={(option) =>
+          this.dispatchAssistantAction({ type: ACTION_TYPES.SELECT_OPTION, option })
+        }
+        onNewGame={() =>
+          this.dispatchAssistantAction({ type: ACTION_TYPES.RESTART_GAME })
+        }
       />
     );
   }

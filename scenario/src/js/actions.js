@@ -1,24 +1,24 @@
 function selectOption(option, context) {
     addAction({
-        type: "select_option",
+        type: assistantContract.actions.selectOption,
         option: option
     }, context);
 }
 
 function repeatQuestion(context) {
     addAction({
-        type: "repeat_question"
+        type: assistantContract.actions.repeatQuestion
     }, context);
 }
 
 function requestCurrentScore(context) {
     addAction({
-        type: "current_score"
+        type: assistantContract.actions.currentScore
     }, context);
 }
 
 function restartGame(context) {
     addAction({
-        type: "restart_game"
+        type: assistantContract.actions.restartGame
     }, context);
 }

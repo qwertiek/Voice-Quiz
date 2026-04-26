@@ -159,31 +159,6 @@ body {
   font-size: clamp(1.1rem, 2vw, 1.6rem);
 }
 
-.toast-message {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  z-index: 5;
-  max-width: 90vw;
-  padding: 14px 18px;
-  border-radius: 14px;
-  font-size: clamp(1rem, 1.8vw, 1.2rem);
-  font-weight: 700;
-  text-align: center;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
-}
-
-.toast-message.success {
-  background: #064e3b;
-  border: 1px solid #34d399;
-}
-
-.toast-message.error {
-  background: #7f1d1d;
-  border: 1px solid var(--danger);
-}
-
 .score-board {
   margin-top: 18px;
   background: linear-gradient(180deg, rgba(12, 30, 54, 0.96), rgba(10, 18, 33, 0.92));
@@ -209,33 +184,6 @@ body {
   margin: -10px 0 24px;
   color: var(--muted);
   font-size: clamp(1rem, 1.8vw, 1.15rem);
-}
-
-.commands-panel {
-  margin-top: 18px;
-  padding: 18px 20px 0;
-  color: var(--muted);
-}
-
-.commands-title {
-  margin: 0 0 10px;
-  font-size: 0.95rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.commands-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.command-chip {
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 999px;
-  padding: 8px 12px;
-  background: rgba(15, 23, 42, 0.42);
-  font-size: 0.95rem;
 }
 
 .celebration-overlay {

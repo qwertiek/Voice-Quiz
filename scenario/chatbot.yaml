@@ -1,4 +1,4 @@
-name: SmartApp
+name: Quiz
 
 entryPoint:
   - entryPoint.sc

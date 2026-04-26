@@ -1,11 +1,13 @@
 import React from 'react';
 import { QuestionCard } from '../components/QuestionCard';
 import { ScoreBoard } from '../components/ScoreBoard';
+import { GAME_PHASES } from '../game/states';
 
 export const GameScreen = ({
   gameState,
   celebrationType,
   celebrationNonce,
+  isVoicePromptLocked,
   onAnswer,
   onNewGame,
 }) => {
@@ -13,14 +15,14 @@ export const GameScreen = ({
     questions,
     currentQuestionIndex,
     score,
-    isWaitingForAnswer,
-    isFinished,
     selectedOption,
     revealedCorrectOption,
+    phase,
   } = gameState;
 
+  const isFinished = phase === GAME_PHASES.RESULT;
+  const isWaitingForAnswer = phase === GAME_PHASES.QUESTION && !isVoicePromptLocked;
   const currentQuestion = questions[currentQuestionIndex];
-  const voiceCommands = ['А, Б, В, Г', 'Вариант А', 'Повтори вопрос', 'Мой счёт', 'Новая игра'];
 
   return (
     <main className="quiz-layout">
@@ -62,17 +64,6 @@ export const GameScreen = ({
       {isFinished && (
         <ScoreBoard score={score} total={questions.length} onRestart={onNewGame} />
       )}
-
-      <footer className="commands-panel">
-        <p className="commands-title">Голосовые команды</p>
-        <div className="commands-list">
-          {voiceCommands.map((command) => (
-            <span key={command} className="command-chip">
-              {command}
-            </span>
-          ))}
-        </div>
-      </footer>
     </main>
   );
 };

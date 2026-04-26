@@ -1,11 +1,5 @@
 import React from 'react';
-
-const OPTION_LABELS = {
-  A: 'А',
-  B: 'Б',
-  V: 'В',
-  G: 'Г',
-};
+import { OPTION_LABELS } from '../game/voicePhrases';
 
 export const QuestionCard = ({
   question,
@@ -16,7 +10,7 @@ export const QuestionCard = ({
   revealedCorrectOption,
   onAnswer,
 }) => {
-  const optionOrder = ['A', 'B', 'V', 'G'];
+  const optionOrder = ['1', '2', '3', '4'];
 
   const getAnswerState = (optionKey) => {
     if (!selectedOption || !revealedCorrectOption) {
