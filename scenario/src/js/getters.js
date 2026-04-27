@@ -82,6 +82,11 @@ function get_event_data(context) {
 
 function get_voice_commands(request) {
     var game = get_game_state(request);
+    var phase = game && (game.phase || game.screen || (game.quiz && game.quiz.phase));
+    if (!game || !phase || phase === 'intro') {
+        return [];
+    }
+
     if (game && game.voice && game.voice.commands && game.voice.commands.length) {
         return game.voice.commands;
     }

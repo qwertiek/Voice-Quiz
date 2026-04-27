@@ -31,7 +31,7 @@ theme: /
         script:
             var request = get_request($context);
             var game = get_game_state(request);
-            var phase = game.phase || game.screen || (game.quiz && game.quiz.phase);
+            var phase = game && (game.phase || game.screen || (game.quiz && game.quiz.phase));
             var commands = get_voice_commands(request);
             if (!game || !phase || phase === 'intro') {
                 $reactions.answer({"value": voicePhrases.startPrompt});

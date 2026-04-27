@@ -49,6 +49,10 @@ export const enqueueVoiceEventWithPolicy = (queue, nextEvent) => {
 export const isVoiceEventStale = (event, game) => {
   const payload = event && event.payload ? event.payload : {};
 
+  if (!event || !game) {
+    return false;
+  }
+
   if (
     payload.gameSessionId &&
     game &&

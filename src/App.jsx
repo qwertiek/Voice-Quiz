@@ -188,7 +188,8 @@ export class App extends React.Component {
   }
 
   lockAnswersForVoicePrompt(event) {
-    if (!VOICE_LOCK_EVENT_TYPES.has(event.eventType)) {
+    const includesNextQuestion = Boolean(event.payload && event.payload.includesNextQuestion);
+    if (!VOICE_LOCK_EVENT_TYPES.has(event.eventType) && !includesNextQuestion) {
       return;
     }
 
@@ -271,6 +272,8 @@ export class App extends React.Component {
         action_id: event.eventType,
         parameters: payload,
       },
+      name: 'SERVER_ACTION',
+      mode: 'foreground',
     };
 
     this.lockAnswersForVoicePrompt(event);
@@ -457,9 +460,7 @@ export class App extends React.Component {
       });
 
       if (result.game.phase === GAME_PHASES.FEEDBACK) {
-        const feedbackPhrase = result.event && result.event.payload
-          ? result.event.payload.phrase
-          : '';
+        const feedbackPhrase = result.feedback ? result.feedback.text : '';
         this.nextQuestionTimer = setTimeout(() => {
           this.moveToNextQuestion({ sendVoiceEvent: !result.includesNextQuestion });
         }, this.getAnswerFeedbackDelay(feedbackPhrase));

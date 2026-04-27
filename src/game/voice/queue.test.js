@@ -8,6 +8,18 @@ import {
 } from './queue';
 
 describe('voice queue policy', () => {
+  test('stale guard keeps events when game state is temporarily unavailable', () => {
+    expect(
+      isVoiceEventStale(
+        {
+          eventType: EVENT_TYPES.QUESTION_PROMPT,
+          payload: { phase: GAME_PHASES.QUESTION, questionIndex: 0 },
+        },
+        null
+      )
+    ).toBe(false);
+  });
+
   test('classifies voice events by queue mode', () => {
     expect(getVoiceEventQueueMode(EVENT_TYPES.GAME_STARTED)).toBe(VOICE_QUEUE_MODES.BLOCKING);
     expect(getVoiceEventQueueMode(EVENT_TYPES.ANSWER_RESULT)).toBe(VOICE_QUEUE_MODES.BLOCKING);

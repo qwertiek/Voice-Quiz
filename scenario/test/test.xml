@@ -97,12 +97,28 @@
         <q>повтори вопрос</q>
     </test-case>
 
+    <test-case id="RepeatQuestionSuggestionText">
+        <q>Повтори вопрос</q>
+    </test-case>
+
     <test-case id="CurrentScoreCommand">
         <q>мой счёт</q>
     </test-case>
 
+    <test-case id="CurrentScoreSuggestionText">
+        <q>Мой счёт</q>
+    </test-case>
+
     <test-case id="RestartGameCommand">
         <q>сыграть ещё</q>
+    </test-case>
+
+    <test-case id="RestartGameSuggestionText">
+        <q>Сыграть ещё</q>
+    </test-case>
+
+    <test-case id="NewGameSuggestionText">
+        <q>Новая игра</q>
     </test-case>
 
     <test-case id="QuestionPromptEventFromActionParameters">

@@ -30,15 +30,26 @@ function addAction(action, context){
 
 function addSuggestions(suggestions, context) {
     var buttons = [];
+    if (!suggestions || !suggestions.length) {
+        return;
+    }
     
     suggestions.forEach (function(suggest) {
         buttons.push(
             {
+                title: suggest,
+                actions: [
+                    {
+                        type: "text",
+                        text: suggest,
+                        should_send_to_backend: true
+                    }
+                ],
                 action: {
                     text: suggest,
-                    type: "text"
-                },
-                title: suggest
+                    type: "text",
+                    should_send_to_backend: true
+                }
             }
         );
     });

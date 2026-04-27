@@ -67,6 +67,8 @@ Canvas отвечает за состояние игры, UI, правила, о
 
 До старта игры `App` хранит `game: null`. Для SmartApp state это преобразуется в `phase: "intro"` через `toAssistantState(null)`.
 
+В фазе `intro` SmartApp native suggestions не показываются. Старт выполняется только Canvas-кнопкой `Старт`, потому что перед запуском пользователь может выбрать количество вопросов на стартовом экране.
+
 ### 3.4. Обработка ответа
 
 Функция `applyAnswer(game, option)`:
@@ -77,7 +79,9 @@ Canvas отвечает за состояние игры, UI, правила, о
 - переводит игру в `feedback` или `result`;
 - формирует event `answer_result`.
 
-Следующий вопрос не включается в `answer_result`. После feedback-паузы Canvas вызывает `advanceToNextQuestion(game)` и отправляет отдельный `question_prompt`.
+Для не финального ответа `answer_result` включает и вердикт, и текст следующего вопроса в одной TTS-реплике. Это сделано намеренно: платформа ненадежно озвучивала второй `sendData` сразу после реплики результата. UI при этом остается в фазе `feedback` на короткую паузу, затем Canvas вызывает `advanceToNextQuestion(game)` без отправки отдельного `question_prompt`.
+
+Для повторения вопроса и для стартового вопроса отдельный `question_prompt` по-прежнему используется.
 
 ## 4. React Canvas
 
@@ -149,6 +153,8 @@ SmartApp Code использует:
 
 Команды новой игры возвращают на стартовый экран. Новая сессия создается только после нажатия кнопки `Старт`.
 
+Native suggestions SmartApp Code используют `action.type = "text"`, поэтому нажатия на подсказки `1`, `2`, `3`, `4`, `Повтори вопрос`, `Мой счёт`, `Новая игра`, `Сыграть ещё` должны проходить тот же путь, что и голосовая команда: текст попадает в `q!`, сценарий отправляет action в Canvas, Canvas формирует voice event и запускает озвучку.
+
 ## 7. Контракт Canvas и SmartApp Code
 
 ### 7.1. Actions из SmartApp Code в Canvas
@@ -214,9 +220,13 @@ assistant.sendData({
   action: {
     action_id: event.eventType,
     parameters: payload
-  }
+  },
+  name: "SERVER_ACTION",
+  mode: "foreground"
 })
 ```
+
+`name: "SERVER_ACTION"` и `mode: "foreground"` важны для Canvas-кнопок: ответ backend должен восприниматься как foreground server-action, чтобы платформа запускала не только отображение текста, но и озвучку.
 
 `scenario/src/js/getters.js` поддерживает получение payload из `data.parameters`, `data.action.parameters`, `data.event.payload` и совместимых форматов.
 

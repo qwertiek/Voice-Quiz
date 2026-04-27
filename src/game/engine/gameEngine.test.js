@@ -24,7 +24,7 @@ describe('gameEngine', () => {
     expect(assistantState.phase).toBe(GAME_PHASES.INTRO);
     expect(assistantState.screen).toBe(GAME_PHASES.INTRO);
     expect(assistantState.item_selector.items).toHaveLength(0);
-    expect(assistantState.voice.commands).toEqual(['Старт']);
+    expect(assistantState.voice.commands).toEqual([]);
   });
 
   test('createInitialGameState starts a fresh random 10-question session', () => {
@@ -97,8 +97,10 @@ describe('gameEngine', () => {
     expect(result.game.revealedCorrectOption).toBe('3');
     expect(result.event.eventType).toBe(EVENT_TYPES.ANSWER_RESULT);
     expect(result.event.payload.status).toBe('correct');
-    expect(result.event.payload.includesNextQuestion).toBe(false);
-    expect(result.event.payload.phrase).toBe('Верно.');
+    expect(result.event.payload.includesNextQuestion).toBe(true);
+    expect(result.event.payload.nextQuestionIndex).toBe(1);
+    expect(result.event.payload.phrase).toContain('Верно.');
+    expect(result.event.payload.phrase).toContain('Вопрос 2 из 10.');
     expect(result.feedback).toEqual({
       text: 'Верно.',
       tone: 'success',
@@ -151,13 +153,13 @@ describe('gameEngine', () => {
     expect(result.event.payload.phrase).toContain('Вопрос 2 из 10.');
   });
 
-  test('non-final answer phrase only carries feedback before a separate question prompt', () => {
+  test('non-final answer phrase carries feedback and next question in one TTS event', () => {
     const game = createOrderedGame();
     const result = applyAnswer(game, '3');
 
-    expect(result.includesNextQuestion).toBe(false);
-    expect(result.event.payload.phrase).toBe('Верно.');
-    expect(result.event.payload.phrase).not.toContain(game.questions[1].question);
+    expect(result.includesNextQuestion).toBe(true);
+    expect(result.event.payload.phrase).toContain('Верно.');
+    expect(result.event.payload.phrase).toContain(game.questions[1].question);
   });
 
   test('createScoreReportEvent reports full question count on result screen', () => {

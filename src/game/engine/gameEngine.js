@@ -50,7 +50,7 @@ export const toAssistantState = (game) => {
         phase: GAME_PHASES.INTRO,
       },
       voice: {
-        commands: ['Старт'],
+        commands: [],
       },
     };
   }
@@ -231,6 +231,7 @@ export const applyAnswer = (game, option) => {
   const isCorrect = question.correctOption === option;
   const nextScore = isCorrect ? game.score + 1 : game.score;
   const isLastQuestion = game.currentQuestionIndex === game.questions.length - 1;
+  const nextQuestion = isLastQuestion ? null : game.questions[game.currentQuestionIndex + 1];
   const feedbackText = isCorrect
     ? VOICE_PHRASES.correctAnswer
     : VOICE_PHRASES.wrongAnswer(
@@ -238,6 +239,14 @@ export const applyAnswer = (game, option) => {
         question.options[question.correctOption]
       );
   const nextPhase = isLastQuestion ? GAME_PHASES.RESULT : GAME_PHASES.FEEDBACK;
+  const nextQuestionPhrase = nextQuestion
+    ? VOICE_PHRASES.questionPrompt(
+        game.currentQuestionIndex + 2,
+        game.questions.length,
+        nextQuestion.question,
+        nextQuestion.options
+      )
+    : '';
   const nextGame = {
     ...game,
     score: nextScore,
@@ -247,7 +256,7 @@ export const applyAnswer = (game, option) => {
   };
   const finalPhrase = isLastQuestion
     ? `${feedbackText} ${VOICE_PHRASES.finalScore(nextScore, game.questions.length)}`
-    : feedbackText;
+    : `${feedbackText} ${nextQuestionPhrase}`.trim();
 
   return {
     game: nextGame,
@@ -259,16 +268,17 @@ export const applyAnswer = (game, option) => {
       score: nextScore,
       gameSessionId: game.gameSessionId,
       questionIndex: game.currentQuestionIndex,
+      nextQuestionIndex: nextQuestion ? game.currentQuestionIndex + 1 : undefined,
       selectedOption: option,
       correctOption: question.correctOption,
-      includesNextQuestion: false,
+      includesNextQuestion: Boolean(nextQuestion),
     }),
     feedback: {
       text: feedbackText,
       tone: isCorrect ? FEEDBACK_KIND.SUCCESS : FEEDBACK_KIND.ERROR,
     },
     celebrationType: isCorrect ? (isLastQuestion ? 'finish' : 'success') : null,
-    includesNextQuestion: false,
+    includesNextQuestion: Boolean(nextQuestion),
   };
 };
 
