@@ -107,6 +107,43 @@ describe('VoiceEventScheduler', () => {
     expect(sent).toEqual([EVENT_TYPES.ANSWER_RESULT, EVENT_TYPES.QUESTION_PROMPT]);
   });
 
+  test('blocking event can use event-specific settle delay', () => {
+    const sent = [];
+    const scheduler = new VoiceEventScheduler({
+      getGameState: () => ({
+        phase: GAME_PHASES.QUESTION,
+        currentQuestionIndex: 1,
+        gameSessionId: 'session-1',
+      }),
+      sendPayload: (event, settle) => {
+        sent.push(event.eventType);
+        settle();
+      },
+      getSettleDelayMs: (event) => (event.eventType === EVENT_TYPES.ANSWER_RESULT ? 1800 : 0),
+      maxPendingEvents: 8,
+      ackTimeoutMs: 5000,
+      retryDelayMs: 1000,
+      minBlockingSettleMs: 2500,
+    });
+
+    scheduler.setReady(true);
+    scheduler.enqueue({
+      eventType: EVENT_TYPES.ANSWER_RESULT,
+      payload: { phase: GAME_PHASES.FEEDBACK, questionIndex: 0, gameSessionId: 'session-1' },
+    });
+    scheduler.enqueue({
+      eventType: EVENT_TYPES.QUESTION_PROMPT,
+      payload: { phase: GAME_PHASES.QUESTION, questionIndex: 1, gameSessionId: 'session-1' },
+    });
+
+    jest.advanceTimersByTime(1799);
+    expect(sent).toEqual([EVENT_TYPES.ANSWER_RESULT]);
+
+    jest.advanceTimersByTime(1);
+    expect(sent).toEqual([EVENT_TYPES.ANSWER_RESULT, EVENT_TYPES.QUESTION_PROMPT]);
+  });
+
+
   test('interrupt releases a stuck current event so the next voice event is sent immediately', () => {
     const sent = [];
     const scheduler = new VoiceEventScheduler({

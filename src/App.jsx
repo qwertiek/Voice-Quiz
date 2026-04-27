@@ -3,18 +3,13 @@ import { createAssistant, createSmartappDebugger } from '@salutejs/client';
 
 import './App.css';
 import { GameScreen } from './pages/GameScreen';
+import { StartScreen } from './pages/StartScreen';
 import { QUIZ_QUESTIONS } from './data/questions';
 import {
   CELEBRATION_DURATION_MS,
   DEDUPE_ACTION_WINDOW_MS,
   MAX_PENDING_VOICE_EVENTS,
-  NEXT_QUESTION_DELAY_MS,
   VOICE_ACK_TIMEOUT_MS,
-  VOICE_BLOCKING_MIN_SETTLE_MS,
-  VOICE_PROMPT_LOCK_BASE_MS,
-  VOICE_PROMPT_LOCK_MAX_MS,
-  VOICE_PROMPT_LOCK_MIN_MS,
-  VOICE_PROMPT_LOCK_PER_CHAR_MS,
   VOICE_RETRY_DELAY_MS,
 } from './game/config';
 import { GAME_PHASES } from './game/states';
@@ -33,6 +28,7 @@ import {
   ACTION_TYPES,
   INVALID_ACTION_REASONS,
   getActionSignature,
+  getIncomingAction,
   validateIncomingAction,
   validateOutgoingEvent,
 } from './game/voice/contract';
@@ -40,12 +36,18 @@ import {
   VOICE_EVENT_POLICIES,
   VoiceEventScheduler,
 } from './game/voice/scheduler';
+import {
+  getAnswerFeedbackVoiceDurationMs,
+  getPromptVoiceDurationMs,
+  getVoiceEventSettleDelayMs,
+} from './game/voice/timing';
 
 const DEBUG_SMARTAPP_NAME = 'Quiz';
 const VOICE_LOCK_EVENT_TYPES = new Set([
   'game_started',
   'question_prompt',
 ]);
+const DEFAULT_QUESTION_COUNT = 10;
 
 const initializeAssistant = (getState) => {
   if (process.env.NODE_ENV === 'development') {
@@ -69,7 +71,9 @@ export class App extends React.Component {
     super(props);
 
     this.state = {
-      game: createInitialGameState(QUIZ_QUESTIONS),
+      game: null,
+      questionCountInput: String(DEFAULT_QUESTION_COUNT),
+      questionCountWarning: '',
       celebrationType: 'success',
       celebrationNonce: 0,
       isVoicePromptLocked: false,
@@ -96,7 +100,7 @@ export class App extends React.Component {
       maxPendingEvents: MAX_PENDING_VOICE_EVENTS,
       ackTimeoutMs: VOICE_ACK_TIMEOUT_MS,
       retryDelayMs: VOICE_RETRY_DELAY_MS,
-      minBlockingSettleMs: VOICE_BLOCKING_MIN_SETTLE_MS,
+      getSettleDelayMs: getVoiceEventSettleDelayMs,
     });
 
     this.assistant.on('data', (event) => {
@@ -108,7 +112,7 @@ export class App extends React.Component {
         return;
       }
 
-      this.dispatchAssistantAction(event.action);
+      this.dispatchAssistantAction(getIncomingAction(event));
     });
 
     this.assistant.on('start', () => {
@@ -163,14 +167,11 @@ export class App extends React.Component {
   }
 
   getVoicePromptLockDuration(phrase) {
-    const normalizedPhrase = typeof phrase === 'string' ? phrase.trim() : '';
-    const estimatedMs =
-      VOICE_PROMPT_LOCK_BASE_MS + normalizedPhrase.length * VOICE_PROMPT_LOCK_PER_CHAR_MS;
+    return getPromptVoiceDurationMs(phrase);
+  }
 
-    return Math.min(
-      Math.max(estimatedMs, VOICE_PROMPT_LOCK_MIN_MS),
-      VOICE_PROMPT_LOCK_MAX_MS
-    );
+  getAnswerFeedbackDelay(phrase) {
+    return getAnswerFeedbackVoiceDurationMs(phrase);
   }
 
   releaseVoicePromptLock() {
@@ -229,6 +230,39 @@ export class App extends React.Component {
       game: toAssistantState(this.state.game),
     };
   }
+
+  getValidatedQuestionCount(value = this.state.questionCountInput) {
+    const maxQuestionCount = QUIZ_QUESTIONS.length;
+    const normalizedValue = String(value).trim();
+    const parsedValue = Number(normalizedValue);
+
+    if (!normalizedValue || !Number.isInteger(parsedValue) || parsedValue < 1) {
+      return {
+        count: null,
+        warning: `Введите натуральное число от 1 до ${maxQuestionCount}.`,
+      };
+    }
+
+    if (parsedValue > maxQuestionCount) {
+      return {
+        count: null,
+        warning: `В банке только ${maxQuestionCount} вопросов. Укажите число от 1 до ${maxQuestionCount}.`,
+      };
+    }
+
+    return {
+      count: parsedValue,
+      warning: '',
+    };
+  }
+
+  handleQuestionCountChange = (value) => {
+    const validation = this.getValidatedQuestionCount(value);
+    this.setState({
+      questionCountInput: value,
+      questionCountWarning: validation.warning,
+    });
+  };
 
   sendVoicePayload(event, onSettled) {
     const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
@@ -299,13 +333,50 @@ export class App extends React.Component {
   }
 
   scheduleInitialAnnouncement() {
-    if (this.hasAnnouncedWelcome) {
+    if (this.hasAnnouncedWelcome || !this.state.game) {
       return;
     }
 
     this.hasAnnouncedWelcome = true;
     this.sendGameEvent(createGameStartedEvent(this.state.game));
   }
+
+  startGameWithQuestionCount = (questionCount) => {
+    this.clearPendingTransition();
+    this.releaseVoicePromptLock();
+
+    const nextGame = createInitialGameState(QUIZ_QUESTIONS, {
+      questionCount,
+    });
+
+    this.hasAnnouncedWelcome = true;
+    this.setState(
+      {
+        game: nextGame,
+        questionCountWarning: '',
+        celebrationNonce: 0,
+      },
+      () => {
+        this.sendGameEvent(createGameStartedEvent(this.state.game), {
+          policy: VOICE_EVENT_POLICIES.INTERRUPT,
+        });
+      }
+    );
+  };
+
+  handleStartGame = (event) => {
+    if (event) {
+      event.preventDefault();
+    }
+
+    const validation = this.getValidatedQuestionCount();
+    if (!validation.count) {
+      this.setState({ questionCountWarning: validation.warning });
+      return;
+    }
+
+    this.startGameWithQuestionCount(validation.count);
+  };
 
   triggerCelebration(type = 'success') {
     if (this.celebrationTimer) {
@@ -332,19 +403,14 @@ export class App extends React.Component {
   startNewGame() {
     this.clearPendingTransition();
     this.releaseVoicePromptLock();
-
-    const nextGame = createInitialGameState(QUIZ_QUESTIONS);
-    this.setState(
-      {
-        game: nextGame,
-        celebrationNonce: 0,
-      },
-      () => {
-        this.sendGameEvent(createGameStartedEvent(this.state.game), {
-          policy: VOICE_EVENT_POLICIES.INTERRUPT,
-        });
-      }
-    );
+    this.voiceScheduler.interrupt({ clearPending: true });
+    this.hasAnnouncedWelcome = false;
+    this.setState({
+      game: null,
+      questionCountWarning: '',
+      celebrationNonce: 0,
+      isVoicePromptLocked: false,
+    });
   }
 
   moveToNextQuestion({ sendVoiceEvent = true } = {}) {
@@ -359,6 +425,10 @@ export class App extends React.Component {
 
   handleAnswer(option) {
     const { game } = this.state;
+    if (!game) {
+      return;
+    }
+
     this.releaseVoicePromptLock();
 
     if (game.phase === GAME_PHASES.RESULT) {
@@ -387,9 +457,12 @@ export class App extends React.Component {
       });
 
       if (result.game.phase === GAME_PHASES.FEEDBACK) {
+        const feedbackPhrase = result.event && result.event.payload
+          ? result.event.payload.phrase
+          : '';
         this.nextQuestionTimer = setTimeout(() => {
           this.moveToNextQuestion({ sendVoiceEvent: !result.includesNextQuestion });
-        }, NEXT_QUESTION_DELAY_MS);
+        }, this.getAnswerFeedbackDelay(feedbackPhrase));
       }
     });
   }
@@ -405,9 +478,15 @@ export class App extends React.Component {
 
     switch (action.type) {
       case ACTION_TYPES.SELECT_OPTION:
+        if (!this.state.game) {
+          return;
+        }
         this.handleAnswer((action.option || '').toUpperCase());
         return;
       case ACTION_TYPES.REPEAT_QUESTION:
+        if (!this.state.game) {
+          return;
+        }
         if (this.state.game.phase === GAME_PHASES.QUESTION) {
           this.sendGameEvent(createQuestionPromptEvent(this.state.game), {
             policy: VOICE_EVENT_POLICIES.INTERRUPT,
@@ -424,6 +503,9 @@ export class App extends React.Component {
         }
         return;
       case ACTION_TYPES.CURRENT_SCORE:
+        if (!this.state.game) {
+          return;
+        }
         this.sendGameEvent(createScoreReportEvent(this.state.game), {
           policy: VOICE_EVENT_POLICIES.INTERRUPT,
         });
@@ -437,6 +519,18 @@ export class App extends React.Component {
   }
 
   render() {
+    if (!this.state.game) {
+      return (
+        <StartScreen
+          questionCount={this.state.questionCountInput}
+          maxQuestionCount={QUIZ_QUESTIONS.length}
+          warning={this.state.questionCountWarning}
+          onQuestionCountChange={this.handleQuestionCountChange}
+          onStart={this.handleStartGame}
+        />
+      );
+    }
+
     return (
       <GameScreen
         gameState={this.state.game}

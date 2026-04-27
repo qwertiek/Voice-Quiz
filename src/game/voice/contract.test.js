@@ -2,11 +2,20 @@ import {
   ACTION_TYPES,
   EVENT_TYPES,
   getActionSignature,
+  getIncomingAction,
   validateIncomingAction,
   validateOutgoingEvent,
 } from './contract';
 
 describe('voice contract', () => {
+  test('getIncomingAction reads smart_app_data and legacy action wrappers', () => {
+    const action = { type: ACTION_TYPES.SELECT_OPTION, option: '1' };
+
+    expect(getIncomingAction({ smart_app_data: action })).toBe(action);
+    expect(getIncomingAction({ action })).toBe(action);
+    expect(getIncomingAction(null)).toBeNull();
+  });
+
   test('validateIncomingAction accepts supported actions', () => {
     expect(validateIncomingAction({ type: ACTION_TYPES.REPEAT_QUESTION })).toBe(true);
     expect(validateIncomingAction({ type: ACTION_TYPES.CURRENT_SCORE })).toBe(true);

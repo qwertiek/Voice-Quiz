@@ -59,7 +59,8 @@ theme: /
             selectOption("4", $context);
 
     state: SelectOptionByText
-        q!: [я] [выбери|выбираю|ответ|вариант] $AnyText::anyText
+        q!: (выбери|выбираю|ответ|вариант) $AnyText::anyText
+        q!: я (выбери|выбираю) $AnyText::anyText
         script:
             var itemId = get_id_by_selected_item(get_request($context));
             if (itemId) {

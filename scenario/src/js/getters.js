@@ -73,6 +73,10 @@ function get_event_data(context) {
         return data.parameters;
     }
 
+    if (data.action && data.action.parameters) {
+        return data.action.parameters;
+    }
+
     return {};
 }
 

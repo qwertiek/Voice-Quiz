@@ -38,6 +38,23 @@ export const createInitialGameState = (questions, options = {}) => ({
 });
 
 export const toAssistantState = (game) => {
+  if (!game) {
+    return {
+      phase: GAME_PHASES.INTRO,
+      screen: GAME_PHASES.INTRO,
+      item_selector: {
+        items: [],
+        ignored_words: [],
+      },
+      quiz: {
+        phase: GAME_PHASES.INTRO,
+      },
+      voice: {
+        commands: ['Старт'],
+      },
+    };
+  }
+
   const phase = game.phase;
   const currentQuestion = getCurrentQuestion(game);
   const canSelectOption = phase === GAME_PHASES.QUESTION && Boolean(currentQuestion);

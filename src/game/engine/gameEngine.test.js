@@ -18,6 +18,15 @@ const keepOrderRandom = () => 0.999999;
 const createOrderedGame = () => createInitialGameState(QUIZ_QUESTIONS, { random: keepOrderRandom });
 
 describe('gameEngine', () => {
+  test('toAssistantState exposes intro state before the game starts', () => {
+    const assistantState = toAssistantState(null);
+
+    expect(assistantState.phase).toBe(GAME_PHASES.INTRO);
+    expect(assistantState.screen).toBe(GAME_PHASES.INTRO);
+    expect(assistantState.item_selector.items).toHaveLength(0);
+    expect(assistantState.voice.commands).toEqual(['Старт']);
+  });
+
   test('createInitialGameState starts a fresh random 10-question session', () => {
     const game = createOrderedGame();
 
@@ -28,6 +37,16 @@ describe('gameEngine', () => {
     expect(typeof game.gameSessionId).toBe('string');
     expect(game.selectedOption).toBeNull();
     expect(game.revealedCorrectOption).toBeNull();
+  });
+
+  test('createInitialGameState uses requested question count', () => {
+    const game = createInitialGameState(QUIZ_QUESTIONS, {
+      questionCount: 5,
+      random: keepOrderRandom,
+    });
+
+    expect(game.questions).toHaveLength(5);
+    expect(new Set(game.questions.map((question) => question.id)).size).toBe(5);
   });
 
   test('pickSessionQuestions returns a shuffled subset without mutating source questions', () => {

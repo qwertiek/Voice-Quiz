@@ -21,6 +21,7 @@ export class VoiceEventScheduler {
     ackTimeoutMs,
     retryDelayMs,
     minBlockingSettleMs = 0,
+    getSettleDelayMs,
   }) {
     this.getGameState = getGameState;
     this.sendPayload = sendPayload;
@@ -30,6 +31,7 @@ export class VoiceEventScheduler {
     this.ackTimeoutMs = ackTimeoutMs;
     this.retryDelayMs = retryDelayMs;
     this.minBlockingSettleMs = minBlockingSettleMs;
+    this.getSettleDelayMs = getSettleDelayMs;
 
     this.ready = false;
     this.isSending = false;
@@ -178,7 +180,7 @@ export class VoiceEventScheduler {
     const sentAt = Date.now();
     const minimumSettleMs =
       getVoiceEventQueueMode(eventToSend.eventType) === VOICE_QUEUE_MODES.BLOCKING
-        ? this.minBlockingSettleMs
+        ? this.getBlockingSettleDelay(eventToSend)
         : 0;
 
     const finishSettle = () => {
@@ -258,5 +260,16 @@ export class VoiceEventScheduler {
       this.trace('send_error', eventToSend);
       this.scheduleRetry();
     }
+  }
+
+  getBlockingSettleDelay(event) {
+    if (typeof this.getSettleDelayMs === 'function') {
+      const delayMs = this.getSettleDelayMs(event);
+      if (Number.isFinite(delayMs) && delayMs >= 0) {
+        return delayMs;
+      }
+    }
+
+    return this.minBlockingSettleMs;
   }
 }

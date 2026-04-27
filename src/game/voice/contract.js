@@ -23,6 +23,14 @@ export const INVALID_ACTION_REASONS = {
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 const SUPPORTED_OPTIONS = ['1', '2', '3', '4'];
 
+export const getIncomingAction = (event) => {
+  if (!isPlainObject(event)) {
+    return null;
+  }
+
+  return event.smart_app_data || event.action || null;
+};
+
 export const validateIncomingAction = (action) => {
   if (!isPlainObject(action) || typeof action.type !== 'string') {
     return false;

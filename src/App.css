@@ -76,6 +76,98 @@ body {
   transform: translateY(-1px);
 }
 
+.start-layout {
+  display: flex;
+  align-items: center;
+}
+
+.start-panel {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  background: linear-gradient(180deg, rgba(11, 24, 44, 0.94), rgba(8, 17, 31, 0.86));
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.start-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  justify-content: center;
+}
+
+.start-kicker {
+  margin: 0 0 10px;
+  color: #86efac;
+  font-size: clamp(0.95rem, 1.6vw, 1.1rem);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.start-form {
+  display: grid;
+  gap: 14px;
+  max-width: 420px;
+}
+
+.question-count-field {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.question-count-input {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  padding: 14px 16px;
+  color: var(--text);
+  background: #0b1223;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.question-count-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+.question-count-input::placeholder {
+  color: #64748b;
+}
+
+.start-warning {
+  margin: 0;
+  color: #fecaca;
+  font-size: 0.98rem;
+}
+
+.start-button {
+  justify-self: start;
+  min-width: 150px;
+}
+
+.start-visual {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.start-visual img {
+  width: min(100%, 360px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  filter: drop-shadow(0 28px 50px rgba(3, 10, 20, 0.42));
+}
+
 .question-card {
   margin-top: 18px;
   background: linear-gradient(180deg, rgba(10, 21, 39, 0.94), rgba(7, 16, 29, 0.9));
@@ -258,6 +350,11 @@ body {
   .answers-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .start-panel {
+    grid-template-columns: minmax(0, 1.08fr) minmax(260px, 0.92fr);
+    padding: 32px;
+  }
 }
 
 @media (max-width: 767px) {
@@ -274,5 +371,13 @@ body {
   .quiz-stats {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .start-layout {
+    align-items: flex-start;
+  }
+
+  .start-visual {
+    min-height: 180px;
   }
 }

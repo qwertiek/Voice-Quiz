@@ -1,4 +1,5 @@
 export const GAME_PHASES = {
+  INTRO: 'intro',
   QUESTION: 'question',
   FEEDBACK: 'feedback',
   RESULT: 'result',

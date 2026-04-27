@@ -11,6 +11,7 @@ function reply(body, response){
 function addAction(action, context){
     var command = {
         type: "smart_app_data",
+        smart_app_data: action,
         action: action
     };
     for (var index = 0; context.response.replies && index < context.response.replies.length; index ++) {
